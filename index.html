@@ -574,8 +574,10 @@ function parseSubtitles(text) {
   return cues;
 }
 
+// Переклад рядків, якого не дав сервер (ручна транскрипція, файл): перекладаємо в браузері й кешуємо.
+const lineTr = {};
 const trFor = c => {
-  if (!S.trCues.length) return '';
+  if (!S.trCues.length) return lineTr[c.text] || '';
   const mid = (c.start + c.end) / 2;
   const t = S.trCues.find(x => x.start <= mid && x.end >= mid) ||
             S.trCues.reduce((best, x) => Math.abs(x.start - c.start) < Math.abs(best.start - c.start) ? x : best, S.trCues[0]);
@@ -648,6 +650,13 @@ function renderSubline() {
   const st = $('#subText'); st.classList.remove('swap'); void st.offsetWidth; st.classList.add('swap');
   st.innerHTML = c ? wordsHtml(c.text, S.cur) : (S.cues.length ? '…' : 'Натисніть «Завантажити», щоб почати.');
   $('#subTr').textContent = c && S.showTr ? trFor(c) : '';
+  if (c && S.showTr && !S.trCues.length && !(c.text in lineTr)) {
+    lineTr[c.text] = '';
+    translate(c.text).then(t => {
+      lineTr[c.text] = t.split(', ')[0];
+      if (S.cues[S.cur] === c && S.showTr) $('#subTr').textContent = lineTr[c.text];
+    });
+  }
 }
 
 // ---------- транскрипт ----------
