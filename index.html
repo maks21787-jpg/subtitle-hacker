@@ -1191,6 +1191,7 @@ async function loadVideo(id, { then } = {}) {
     if (j.lang !== S.lang) status(`Субтитрів мовою ${S.lang.toUpperCase()} немає, узяв ${j.lang}.`);
     else status(`${j.cues.length} фраз${j.trCues.length ? ' + переклад ' + (NATIVE === 'uk' ? 'українською' : 'англійською') : ''}. Клікайте по словах, щоб створювати картки.`);
     setCues(j.cues, j.trCues);
+    $('#pastePanel').hidden = true;
     store.set('subs:' + id + ':' + S.lang, { title: j.title, cues: j.cues, trCues: j.trCues });
     then && setTimeout(then, 600);
   } catch (e) {
