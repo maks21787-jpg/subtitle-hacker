@@ -1,0 +1,8 @@
+{
+  "name": "subtitle-hacker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Learn English and Ukrainian through YouTube videos: clickable subtitles, vocabulary cards, notes, tests, infographics.",
+  "scripts": { "start": "node server.js" },
+  "engines": { "node": ">=18" }
+}

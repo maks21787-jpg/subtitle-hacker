@@ -1,0 +1,1221 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Subtitle Hacker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700&family=Onest:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: монтажний стіл — відео й «живий» субтитр ліворуч, робочі режими праворуч; на телефоні все в одну колонку. */
+:root {
+  --bg: #eef0f3;
+  --panel: #ffffff;
+  --ink: #15181d;
+  --muted: #5d6573;
+  --line: #d8dce3;
+  --sub: #b07800;          /* колір «плівкового» субтитра */
+  --sub-bg: #1a1c20;
+  --sub-fg: #ffd65a;
+  --accent: #2448c9;
+  --accent-ink: #ffffff;
+  --good: #1f8a4c;
+  --bad: #c2362f;
+  --hl: #fff1bf;
+  --font-display: "Unbounded", "Segoe UI", system-ui, sans-serif;
+  --font-body: "Onest", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111317; --panel: #1a1d23; --ink: #e9ebef; --muted: #98a0ad; --line: #2c313a;
+    --sub: #ffd65a; --sub-bg: #0b0c0e; --sub-fg: #ffd65a; --accent: #7d9bff; --accent-ink: #0d1430;
+    --good: #4cc584; --bad: #ff7a70; --hl: #3a3215; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111317; --panel: #1a1d23; --ink: #e9ebef; --muted: #98a0ad; --line: #2c313a;
+  --sub: #ffd65a; --sub-bg: #0b0c0e; --sub-fg: #ffd65a; --accent: #7d9bff; --accent-ink: #0d1430;
+  --good: #4cc584; --bad: #ff7a70; --hl: #3a3215; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--ink);
+  font: 15px/1.5 var(--font-body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 0 32px;
+}
+[hidden] { display: none !important; }
+button, input, select, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ---------- верхня панель ---------- */
+.top {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px;
+  padding-block: 18px 16px; max-width: 1400px; margin: 0 auto;
+}
+.brand { font-family: var(--font-display); font-weight: 700; font-size: 20px; letter-spacing: -0.01em; white-space: nowrap; }
+.brand span { color: var(--sub); }
+.load { flex: 1 1 420px; display: flex; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.load input[type=url] {
+  flex: 1 1 240px; min-width: 0; padding: 10px 12px; border-radius: 8px;
+  border: 1px solid var(--line); background: var(--panel);
+}
+.load select { padding: 10px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); }
+.btn {
+  border: 1px solid var(--line); background: var(--panel); border-radius: 8px;
+  padding: 9px 14px; cursor: pointer; font-weight: 500; white-space: nowrap;
+}
+.btn:hover { border-color: var(--muted); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn.small { padding: 5px 10px; font-size: 13px; }
+.btn.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.btn:disabled { opacity: .45; cursor: default; }
+.file-btn { position: relative; overflow: hidden; }
+.file-btn input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.status { max-width: 1400px; margin: 0 auto 10px; font-size: 13px; color: var(--muted); min-height: 20px; }
+.status.err { color: var(--bad); }
+
+/* ---------- основна сітка ---------- */
+.grid {
+  max-width: 1400px; margin: 0 auto;
+  display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 20px; align-items: start;
+}
+@media (max-width: 960px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+.stage { position: sticky; top: 12px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+@media (max-width: 960px) { .stage { position: static; } }
+.video { aspect-ratio: 16 / 9; width: 100%; max-width: 100%; background: #000; border-radius: 10px; overflow: hidden; }
+.video > div, .video iframe { width: 100%; height: 100%; display: block; }
+.vtitle { font-weight: 600; font-size: 14px; color: var(--muted); }
+
+/* «плівковий» субтитр */
+.subline {
+  background: var(--sub-bg); color: var(--sub-fg); border-radius: 10px;
+  padding: 18px 20px 14px; min-height: 112px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.subline .meta { display: flex; justify-content: space-between; gap: 10px; font: 12px var(--font-mono); color: #9aa0a8; }
+.subline .text { font-size: clamp(19px, 2.2vw, 25px); line-height: 1.35; font-weight: 500; text-wrap: balance; }
+.subline .tr { font-size: 14px; color: #c9ccd2; }
+.w { cursor: pointer; border-radius: 4px; padding: 0 1px; transition: background .12s; }
+.w:hover { background: rgba(255,214,90,.22); }
+.w.known { text-decoration: underline 2px; text-underline-offset: 4px; text-decoration-color: currentColor; }
+.subline .w.known { text-decoration-color: #ffd65a88; }
+
+.controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.controls .sep { width: 1px; height: 22px; background: var(--line); }
+.controls .label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.kbd { font: 11px var(--font-mono); color: var(--muted); }
+
+/* ---------- права панель ---------- */
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; min-width: 0; display: flex; flex-direction: column; }
+.tabs { display: flex; gap: 2px; padding: 6px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+.tab {
+  border: 0; background: none; padding: 8px 12px; border-radius: 7px; cursor: pointer;
+  font-weight: 500; color: var(--muted); white-space: nowrap;
+}
+.tab[aria-selected=true] { background: var(--bg); color: var(--ink); }
+.tab .count { font: 11px var(--font-mono); margin-left: 4px; }
+.view { padding: 16px; min-width: 0; }
+
+.transcript { max-height: 70vh; overflow-y: auto; display: flex; flex-direction: column; margin: -16px; padding: 8px; }
+.cue { display: grid; grid-template-columns: 58px minmax(0, 1fr) 28px; gap: 10px; padding: 7px 8px; border-radius: 7px; cursor: pointer; }
+.cue .add {
+  width: 26px; height: 26px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel);
+  cursor: pointer; color: var(--muted); font-weight: 600; line-height: 1; opacity: .35;
+}
+.cue:hover .add, .cue .add.in { opacity: 1; }
+.cue .add.in { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.note { border: 1px solid var(--line); border-radius: 9px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+.note-head { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+.note time { font: 12px var(--font-mono); color: var(--accent); cursor: pointer; }
+.note .q { font-size: 15px; }
+.note .q .tr { display: block; font-size: 13px; color: var(--muted); }
+.note textarea {
+  width: 100%; min-height: 34px; resize: vertical; border: 1px dashed var(--line); border-radius: 7px;
+  background: var(--bg); padding: 6px 8px; font-size: 14px;
+}
+.card input.trin { border: 1px solid var(--line); background: var(--bg); border-radius: 6px; padding: 2px 6px; font-size: 14px; width: min(220px, 100%); }
+
+.btn { transition: transform .12s ease, background .15s, border-color .15s, box-shadow .15s; }
+.btn:active:not(:disabled) { transform: scale(.96); }
+.btn.primary:hover { box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 35%, transparent); }
+.btn.ghost { background: transparent; }
+
+/* панель ручних субтитрів */
+.paste { max-width: 1400px; margin: 0 auto 16px; animation: drop .25s ease; }
+.paste-inner {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px;
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 20px;
+}
+@media (max-width: 760px) { .paste-inner { grid-template-columns: minmax(0, 1fr); } }
+.paste-help ol { margin: 8px 0 0; padding-left: 20px; color: var(--muted); display: grid; gap: 6px; }
+.paste-help b { color: var(--ink); }
+.paste-form { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.paste-form textarea {
+  min-height: 130px; resize: vertical; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--line);
+  background: var(--bg); font: 13px/1.5 var(--font-mono);
+}
+
+/* інфографіка */
+.info-wrap { overflow-x: auto; }
+.poster {
+  --p-bg: #14161b; --p-ink: #f3f1ea; --p-dim: #a5a9b3; --p-sub: #ffd65a; --p-acc: #8fa8ff;
+  background: var(--p-bg); color: var(--p-ink); border-radius: 14px; padding: 28px 26px 22px;
+  display: flex; flex-direction: column; gap: 18px; min-width: 300px;
+  background-image: radial-gradient(circle at 100% 0, rgba(255,214,90,.12), transparent 45%);
+}
+.poster .p-kicker { font: 600 11px var(--font-mono); letter-spacing: .14em; text-transform: uppercase; color: var(--p-sub); }
+.poster .p-title { font: 700 clamp(20px, 2.3vw, 27px)/1.2 var(--font-display); letter-spacing: -0.015em; text-wrap: balance; margin: 6px 0 0; }
+.poster .p-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.poster .p-stat { border-top: 2px solid var(--p-sub); padding-top: 6px; }
+.poster .p-stat b { display: block; font: 700 20px var(--font-display); font-variant-numeric: tabular-nums; }
+.poster .p-stat span { font-size: 11px; color: var(--p-dim); }
+.poster .p-theses { display: flex; flex-direction: column; gap: 10px; }
+.poster .p-th { display: grid; grid-template-columns: 46px minmax(0, 1fr); gap: 10px; align-items: baseline; animation: rise .4s ease backwards; }
+.poster .p-th time { font: 600 12px var(--font-mono); color: var(--p-sub); }
+.poster .p-th div { font-size: 15px; line-height: 1.45; outline: none; border-radius: 4px; }
+.poster .p-th div:focus { background: rgba(255,255,255,.08); }
+.poster .p-th small { display: block; color: var(--p-dim); font-size: 12.5px; margin-top: 2px; }
+.poster .p-h { font: 600 11px var(--font-mono); letter-spacing: .12em; text-transform: uppercase; color: var(--p-dim); }
+.poster .p-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.poster .p-tag { border: 1px solid rgba(255,255,255,.18); border-radius: 999px; padding: 3px 10px; font-size: 13px; }
+.poster .p-tag.mine { border-color: var(--p-sub); color: var(--p-sub); }
+.poster .p-foot { display: flex; justify-content: space-between; font: 11px var(--font-mono); color: var(--p-dim); border-top: 1px solid rgba(255,255,255,.12); padding-top: 10px; gap: 10px; flex-wrap: wrap; }
+@media (max-width: 520px) { .poster .p-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* анімації */
+@keyframes rise { from { opacity: .35; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes slide { from { transform: translateY(6px); } to { transform: none; } }
+@keyframes drop { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+@keyframes pop { 0% { transform: scale(.94); opacity: 0; } 60% { transform: scale(1.02); opacity: 1; } 100% { transform: none; } }
+@keyframes shake { 0%,100% { transform: none; } 20%,60% { transform: translateX(-5px); } 40%,80% { transform: translateX(5px); } }
+@keyframes glow { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--good) 45%, transparent); } 100% { box-shadow: 0 0 0 10px transparent; } }
+.view:not([hidden]), [data-mode]:not([hidden]) { animation: slide .22s ease; }
+.subline .text.swap { animation: rise .25s ease; }
+.option.right { animation: glow .6s ease; }
+.option.wrong { animation: shake .35s ease; }
+.cloze input.no { animation: shake .35s ease; }
+.card.new, .note.new { animation: pop .35s ease; }
+.toast:not([hidden]) { animation: rise .2s ease; }
+.pop:not([hidden]) { animation: pop .18s ease; }
+.cue { transition: background .25s; }
+.tab { transition: background .15s, color .15s; }
+.flash { animation: pop .25s ease; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; } }
+
+/* друк / PDF */
+#printArea { display: none; }
+@media print {
+  @page { margin: 16mm; }
+  body { background: #fff; color: #000; padding: 0; font-size: 11pt; }
+  body > *:not(#printArea) { display: none !important; }
+  #printArea { display: block; }
+  #printArea h1 { font-family: var(--font-display); font-size: 18pt; margin: 0 0 4pt; }
+  #printArea h2 { font-size: 13pt; margin: 18pt 0 6pt; border-bottom: 1px solid #999; padding-bottom: 3pt; }
+  #printArea .src { color: #555; font-size: 9pt; }
+  #printArea .pn { display: grid; grid-template-columns: 14mm 1fr; gap: 4mm; padding: 4pt 0; border-bottom: 1px dotted #ccc; break-inside: avoid; }
+  #printArea .pn time { font: 9pt var(--font-mono); color: #555; }
+  #printArea .pn .tr { color: #444; font-size: 10pt; display: block; }
+  #printArea .pn .my { font-style: italic; display: block; margin-top: 2pt; }
+  #printArea table { width: 100%; border-collapse: collapse; }
+  #printArea th, #printArea td { text-align: left; border-bottom: 1px solid #ccc; padding: 4pt 6pt 4pt 0; vertical-align: top; }
+  #printArea td.ctx { font-size: 9.5pt; color: #444; }
+  #printArea .poster { break-inside: avoid; margin-top: 8pt; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
+.cue:hover { background: var(--bg); }
+.cue.now { background: var(--hl); }
+.cue time { font: 12px/1.9 var(--font-mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.cue .tr { display: block; font-size: 13px; color: var(--muted); }
+
+h2 { font-family: var(--font-display); font-weight: 500; font-size: 17px; margin: 0 0 4px; letter-spacing: -0.01em; }
+.hint { color: var(--muted); font-size: 13px; margin: 0 0 14px; }
+.empty { color: var(--muted); padding: 24px 4px; text-align: center; }
+
+/* тренування */
+.drill { display: flex; flex-direction: column; gap: 14px; }
+.drill-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.score { font: 13px var(--font-mono); color: var(--muted); }
+.score b { color: var(--ink); }
+.cloze { font-size: 21px; line-height: 2.1; }
+.cloze input {
+  width: auto; min-width: 3ch; padding: 0 6px; border: 0; border-bottom: 2px solid var(--accent);
+  background: var(--bg); border-radius: 4px 4px 0 0; font-size: 19px; text-align: center;
+}
+.cloze input.ok { border-color: var(--good); color: var(--good); }
+.cloze input.no { border-color: var(--bad); color: var(--bad); }
+.answer { font-size: 14px; color: var(--muted); }
+.answer b { color: var(--ink); }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.prompt-line {
+  background: var(--sub-bg); color: var(--sub-fg); border-radius: 10px; padding: 14px 16px;
+  font-size: 18px; line-height: 1.4;
+}
+.prompt-line small { display: block; font: 11px var(--font-mono); color: #9aa0a8; margin-bottom: 4px; letter-spacing: .04em; text-transform: uppercase; }
+.options { display: flex; flex-direction: column; gap: 8px; }
+.option {
+  text-align: left; border: 1px solid var(--line); background: var(--panel); border-radius: 9px;
+  padding: 11px 14px; cursor: pointer; font-size: 15px; display: grid; grid-template-columns: 22px minmax(0,1fr); gap: 8px;
+}
+.option:hover:not(:disabled) { border-color: var(--accent); }
+.option .k { font: 12px/1.9 var(--font-mono); color: var(--muted); }
+.option.right { border-color: var(--good); background: color-mix(in srgb, var(--good) 12%, var(--panel)); }
+.option.wrong { border-color: var(--bad); background: color-mix(in srgb, var(--bad) 10%, var(--panel)); }
+.option:disabled { cursor: default; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg button { border: 0; background: none; padding: 5px 10px; cursor: pointer; font-size: 13px; }
+.seg button.on { background: var(--ink); color: var(--bg); }
+
+/* картки */
+.cards-tools { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
+.card-list { display: flex; flex-direction: column; gap: 8px; }
+.card {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; align-items: start;
+  border: 1px solid var(--line); border-radius: 9px; padding: 10px 12px;
+}
+.card .word { font-weight: 600; font-size: 16px; }
+.card .trn { color: var(--muted); }
+.card .ctx { grid-column: 1 / -1; font-size: 13px; color: var(--muted); }
+.card .ctx mark { background: var(--hl); color: var(--ink); border-radius: 3px; padding: 0 2px; }
+.card .acts { display: flex; gap: 4px; }
+.box { font: 11px var(--font-mono); color: var(--muted); }
+.flash { border: 1px solid var(--line); border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 12px; text-align: center; }
+.flash .front { font-size: 19px; line-height: 1.5; }
+.flash .front mark { background: var(--hl); color: var(--ink); border-radius: 4px; padding: 0 3px; }
+.flash .back { font-size: 17px; }
+.flash .back .ctx-tr { display: block; font-size: 14px; color: var(--muted); margin-top: 6px; }
+
+/* поповер для слова */
+.pop {
+  position: fixed; z-index: 50; width: min(340px, calc(100vw - 32px));
+  background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0,0,0,.22); padding: 14px; display: flex; flex-direction: column; gap: 10px;
+}
+.pop .pw { font-family: var(--font-display); font-weight: 500; font-size: 18px; }
+.pop .pctx { font-size: 13px; color: var(--muted); }
+.pop input { padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); width: 100%; }
+.pop a { color: var(--accent); font-size: 13px; }
+.toast {
+  position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%);
+  background: var(--ink); color: var(--bg); padding: 9px 16px; border-radius: 8px; font-size: 14px; z-index: 60;
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="brand">Subtitle <span>Hacker</span></div>
+  <form class="load" id="loadForm">
+    <input id="url" type="url" placeholder="Посилання на YouTube, напр. https://youtu.be/…" required>
+    <select id="lang" title="Мова відео" aria-label="Мова відео">
+      <option value="en">Англійська</option><option value="uk">Українська</option>
+    </select>
+    <button class="btn primary" type="submit">Відкрити відео</button>
+    <button class="btn ghost" type="button" id="pasteToggle" title="Вставити транскрипцію або файл субтитрів">Субтитри вручну</button>
+  </form>
+</header>
+<div class="status" id="status"></div>
+<section class="paste" id="pastePanel" hidden>
+  <div class="paste-inner">
+    <div class="paste-help">
+      <h2>Вставте транскрипцію</h2>
+      <ol>
+        <li>На YouTube під відео натисніть <b>…ще</b>, потім <b>Показати транскрипцію</b>.</li>
+        <li>Виділіть увесь текст у панелі разом із часом і скопіюйте (Ctrl+C).</li>
+        <li>Вставте сюди й натисніть «Готово». Підходять і файли .srt / .vtt.</li>
+      </ol>
+    </div>
+    <div class="paste-form">
+      <textarea id="pasteText" placeholder="0:04&#10;So in college, I was a government major,&#10;0:07&#10;which means I had to write a lot of papers."></textarea>
+      <div class="row" style="justify-content:flex-end">
+        <label class="btn file-btn">Файл .srt / .vtt<input id="subFile" type="file" accept=".srt,.vtt,.txt,text/vtt"></label>
+        <button class="btn" id="pasteClose" type="button">Закрити</button>
+        <button class="btn primary" id="pasteUse" type="button">Готово</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<main class="grid">
+  <section class="stage">
+    <div class="video"><div id="player"></div></div>
+    <div class="vtitle" id="vtitle"></div>
+    <div class="subline" id="subline">
+      <div class="meta"><span id="subTime">--:--</span><span id="subIdx"></span></div>
+      <div class="text" id="subText">Вставте посилання на YouTube і натисніть «Відкрити відео».</div>
+      <div class="tr" id="subTr"></div>
+    </div>
+    <div class="controls">
+      <button class="btn small" id="prevBtn" title="Попередня фраза (←)">← Фраза</button>
+      <button class="btn small" id="replayBtn" title="Повторити поточну фразу (R)">Ще раз</button>
+      <button class="btn small" id="nextBtn" title="Наступна фраза (→)">Фраза →</button>
+      <span class="sep"></span>
+      <span class="label">Петля</span>
+      <div class="seg" id="loopSeg">
+        <button data-n="0" class="on">вимк</button><button data-n="3">×3</button><button data-n="5">×5</button><button data-n="-1">∞</button>
+      </div>
+      <span class="label">Швидкість</span>
+      <div class="seg" id="rateSeg">
+        <button data-r="0.5">0.5</button><button data-r="0.75">0.75</button><button data-r="1" class="on">1</button>
+      </div>
+      <button class="btn small" id="trToggle" title="Показувати переклад під субтитром">Переклад</button>
+    </div>
+    <div class="kbd">Пробіл — пауза · R — повтор фрази · ← → — сусідні фрази · клік по слову — картка</div>
+  </section>
+
+  <section class="panel">
+    <nav class="tabs" role="tablist">
+      <button class="tab" role="tab" data-tab="transcript" aria-selected="true">Транскрипт</button>
+      <button class="tab" role="tab" data-tab="notes" aria-selected="false">Конспект<span class="count" id="noteCount"></span></button>
+      <button class="tab" role="tab" data-tab="cards" aria-selected="false">Слова<span class="count" id="cardCount"></span></button>
+      <button class="tab" role="tab" data-tab="test" aria-selected="false">Тест</button>
+      <button class="tab" role="tab" data-tab="info" aria-selected="false">Інфографіка</button>
+    </nav>
+
+    <div class="view" data-view="info" hidden>
+      <div class="cards-tools">
+        <div><h2>Інфографіка</h2><p class="hint" style="margin:0">Ключові тези відео. Клікніть по тексту, щоб його змінити.</p></div>
+        <div class="row">
+          <div class="seg" id="infoSrc"><button data-s="auto" class="on">Автоматично</button><button data-s="notes">З конспекту</button></div>
+          <button class="btn primary" id="infoPng">Зберегти PNG</button>
+        </div>
+      </div>
+      <div class="info-wrap"><div class="poster" id="poster"></div></div>
+    </div>
+
+    <div class="view" data-view="transcript">
+      <div class="transcript" id="transcript"></div>
+    </div>
+
+    <div class="view" data-view="notes" hidden>
+      <div class="cards-tools">
+        <div><h2>Конспект</h2><p class="hint" style="margin:0">Натискайте «+» біля фрази в транскрипті або додайте свою думку на поточному моменті.</p></div>
+        <div class="row">
+          <button class="btn" id="noteAdd">+ Нотатка тут</button>
+          <button class="btn primary" id="pdfBtn">Завантажити PDF</button>
+        </div>
+      </div>
+      <div class="row" style="margin-bottom:12px">
+        <button class="btn small" id="noteAll">Додати весь транскрипт</button>
+        <button class="btn small" id="noteClear">Очистити</button>
+      </div>
+      <div class="card-list" id="noteList"></div>
+    </div>
+
+    <div class="view" data-view="test" hidden>
+      <div class="row" style="margin-bottom:16px">
+        <div class="seg" id="testSeg">
+          <button data-m="words" class="on">Переклад слів</button><button data-m="cloze">Пропущені слова</button><button data-m="next">Що далі?</button>
+        </div>
+      </div>
+
+    <div data-mode="words">
+      <div class="drill">
+        <div class="drill-head">
+          <div><h2>Переклад слів</h2><p class="hint" style="margin:0">Слова з вашого словника. Оберіть правильний переклад, потім почуєте слово у відео.</p></div>
+          <div class="score" id="wordScore"></div>
+        </div>
+        <div class="prompt-line" id="wordPrompt"></div>
+        <div class="options" id="wordOptions"></div>
+        <div class="row">
+          <button class="btn" id="wordReplay">Почути у відео</button>
+          <button class="btn primary" id="wordNext">Наступне слово</button>
+        </div>
+      </div>
+    </div>
+
+    <div data-mode="cloze" hidden>
+      <div class="drill">
+        <div class="drill-head">
+          <div><h2>Пропущені слова</h2><p class="hint" style="margin:0">Прослухайте фразу й впишіть сховані слова. Слова з ваших карток ховаються першими.</p></div>
+          <div class="score" id="clozeScore"></div>
+        </div>
+        <div class="row">
+          <span class="label" style="font-size:12px;color:var(--muted)">Сховати</span>
+          <div class="seg" id="clozeLevel">
+            <button data-l="1" class="on">1 слово</button><button data-l="2">2 слова</button><button data-l="3">півфрази</button>
+          </div>
+        </div>
+        <div class="cloze" id="clozeText"></div>
+        <div class="answer" id="clozeAnswer"></div>
+        <div class="row">
+          <button class="btn" id="clozePlay">Прослухати</button>
+          <button class="btn" id="clozeSlow">Повільно</button>
+          <button class="btn" id="clozeHint">Підказка</button>
+          <button class="btn primary" id="clozeCheck">Перевірити</button>
+          <button class="btn" id="clozeNext">Далі</button>
+        </div>
+      </div>
+    </div>
+
+    <div data-mode="next" hidden>
+      <div class="drill">
+        <div class="drill-head">
+          <div><h2>Вгадай наступну репліку</h2><p class="hint" style="margin:0">Послухайте фразу. Що скажуть далі? Після відповіді відео програє справжнє продовження.</p></div>
+          <div class="score" id="nextScore"></div>
+        </div>
+        <div class="prompt-line" id="nextPrompt"></div>
+        <div class="options" id="nextOptions"></div>
+        <div class="row">
+          <button class="btn" id="nextReplay">Прослухати ще раз</button>
+          <button class="btn primary" id="nextNext">Наступне питання</button>
+        </div>
+      </div>
+    </div>
+    </div>
+
+    <div class="view" data-view="cards" hidden>
+      <div class="cards-tools">
+        <div><h2>Мій словник</h2><p class="hint" style="margin:0" id="dueInfo"></p></div>
+        <div class="row">
+          <button class="btn primary" id="reviewBtn">Вчити картки</button>
+          <button class="btn" id="trAllBtn">Перекласти всі</button>
+          <button class="btn" id="pdfBtn2">PDF</button>
+        </div>
+      </div>
+      <div id="review" hidden></div>
+      <div class="card-list" id="cardList"></div>
+    </div>
+  </section>
+</main>
+
+<div class="pop" id="pop" hidden>
+  <div class="pw" id="popWord"></div>
+  <div class="pctx" id="popCtx"></div>
+  <input id="popTr" placeholder="Переклад або нотатка">
+  <div class="row" style="justify-content:space-between">
+    <a id="popLink" href="#" target="_blank" rel="noopener">Відкрити в Google Translate ↗</a>
+  </div>
+  <div class="row" style="justify-content:flex-end">
+    <button class="btn small" id="popCancel">Скасувати</button>
+    <button class="btn small primary" id="popSave">Створити картку</button>
+  </div>
+</div>
+<div class="toast" id="toast" hidden></div>
+<div id="printArea"></div>
+
+<script src="config.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://www.youtube.com/iframe_api"></script>
+<script>
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+// Мова перекладу: англійське відео → українська, українське → англійська.
+let NATIVE = 'uk';
+const nativeFor = lang => lang === 'uk' ? 'en' : 'uk';
+const API = (window.SH_API || '').replace(/\/$/, '');
+// На GitHub Pages сервера немає: без адреси API субтитри вставляються вручну.
+const HAS_API = !!API || !location.hostname.endsWith('github.io');
+const DEMO = 'https://www.youtube.com/watch?v=arj7oStGLkU';
+
+// ---------- сховище ----------
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('sh:' + k); return v ? JSON.parse(v) : d; } catch { return d; } },
+  set(k, v) { try { localStorage.setItem('sh:' + k, JSON.stringify(v)); } catch {} },
+};
+
+const S = {
+  videoId: null, title: '', lang: 'en',
+  cues: [], trCues: [], notes: [],
+  cards: store.get('cards', []),
+  cur: -1, loopN: 0, rate: 1, showTr: store.get('showTr', true),
+  clip: null,               // {start, end, left, onEnd}
+  stats: store.get('stats', { cloze: [0, 0], next: [0, 0], streak: 0 }),
+};
+
+// ---------- утиліти ----------
+const fmt = t => { t = Math.max(0, t); const m = Math.floor(t / 60), s = Math.floor(t % 60); return `${m}:${String(s).padStart(2, '0')}`; };
+const esc = s => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const norm = s => s.toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/[’']/g, "'").replace(/[^\p{L}\p{N}' ]/gu, '').trim();
+const WORD = /(\p{L}[\p{L}\p{M}\p{N}'’-]*)/u;
+const tokens = text => text.split(WORD);   // непарні індекси — слова
+const pickRand = a => a[Math.floor(Math.random() * a.length)];
+function toast(msg) { const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toast._t); toast._t = setTimeout(() => t.hidden = true, 1800); }
+function status(msg, err) { const s = $('#status'); s.textContent = msg || ''; s.classList.toggle('err', !!err); }
+
+function parseId(url) {
+  const m = String(url).match(/(?:youtu\.be\/|v=|\/shorts\/|\/embed\/|\/live\/)([\w-]{11})/) || String(url).match(/^([\w-]{11})$/);
+  return m ? m[1] : null;
+}
+
+const toSec = t => { const p = t.replace(',', '.').split(':').map(Number); return p.length === 3 ? p[0] * 3600 + p[1] * 60 + p[2] : p[0] * 60 + p[1]; };
+
+// Текст, скопійований з панелі «Транскрипція» на YouTube: «0:04» на окремому рядку (або на початку), далі текст.
+function parseYoutubeTranscript(text) {
+  const TS = /^((?:\d{1,2}:)?\d{1,2}:\d{2})\s*(.*)$/;
+  const cues = [];
+  for (const raw of text.replace(/\r/g, '').split('\n')) {
+    const line = raw.trim();
+    if (!line || /^\d+\s+(seconds?|minutes?|hours?|секунд\S*|хвилин\S*|годин\S*)/i.test(line)) continue;
+    const m = line.match(TS);
+    if (m) { cues.push({ start: toSec(m[1]), end: 0, text: m[2] }); continue; }
+    if (cues.length) cues[cues.length - 1].text += (cues[cues.length - 1].text ? ' ' : '') + line;
+  }
+  const out = cues.filter(c => c.text.trim());
+  out.forEach((c, i) => c.end = out[i + 1] ? out[i + 1].start : c.start + 4);
+  return out;
+}
+
+function parseSubtitles(text) {
+  if (!text.includes('-->')) return parseYoutubeTranscript(text);
+  const cues = [];
+  for (const block of text.replace(/\r/g, '').split(/\n{2,}/)) {
+    const lines = block.split('\n');
+    const i = lines.findIndex(l => l.includes('-->'));
+    if (i < 0) continue;
+    const [a, b] = lines[i].split('-->').map(s => s.trim().split(/\s+/)[0]);
+    const txt = lines.slice(i + 1).join(' ').replace(/<[^>]+>/g, '').replace(/\{[^}]+\}/g, '').replace(/\s+/g, ' ').trim();
+    if (txt) cues.push({ start: toSec(a), end: toSec(b), text: txt });
+  }
+  return cues;
+}
+
+const trFor = c => {
+  if (!S.trCues.length) return '';
+  const mid = (c.start + c.end) / 2;
+  const t = S.trCues.find(x => x.start <= mid && x.end >= mid) ||
+            S.trCues.reduce((best, x) => Math.abs(x.start - c.start) < Math.abs(best.start - c.start) ? x : best, S.trCues[0]);
+  return Math.abs(t.start - c.start) < 4 ? t.text : '';
+};
+const cardWords = () => new Set(S.cards.map(c => norm(c.word)));
+
+// ---------- плеєр ----------
+let player, playerReady = false, pendingVideo = null;
+window.onYouTubeIframeAPIReady = () => {
+  player = new YT.Player('player', {
+    width: '100%', height: '100%',
+    playerVars: { cc_load_policy: 0, iv_load_policy: 3, modestbranding: 1, rel: 0, playsinline: 1 },
+    events: {
+      onReady: () => { playerReady = true; if (pendingVideo) cueVideo(pendingVideo); },
+      // вбудовані субтитри YouTube дублюють наш рядок під відео — вимикаємо їх
+      onStateChange: () => { try { player.unloadModule('captions'); player.unloadModule('cc'); } catch {} },
+    },
+  });
+};
+function cueVideo(id) {
+  if (!playerReady) { pendingVideo = id; return; }
+  player.cueVideoById(id);
+  player.setPlaybackRate(S.rate);
+}
+const now = () => (playerReady && player.getCurrentTime) ? player.getCurrentTime() : 0;
+
+// Програти шматок [start, end] n разів; n = -1 — нескінченно.
+function playClip(start, end, n = 1, onEnd) {
+  if (!playerReady) return;
+  S.clip = { start, end, left: n, onEnd };
+  player.seekTo(Math.max(0, start - 0.05), true);
+  player.playVideo();
+}
+function playCue(i, opts = {}) {
+  const c = S.cues[i]; if (!c) return;
+  const n = opts.n ?? (S.loopN === 0 ? 1 : S.loopN);
+  playClip(c.start, c.end + 0.15, n, opts.onEnd);
+}
+
+function cueAt(t) {
+  let lo = 0, hi = S.cues.length - 1, ans = -1;
+  while (lo <= hi) { const m = (lo + hi) >> 1; if (S.cues[m].start <= t) { ans = m; lo = m + 1; } else hi = m - 1; }
+  return ans;
+}
+
+setInterval(() => {
+  if (!playerReady || !S.cues.length) return;
+  const t = now();
+  if (S.clip && player.getPlayerState() === YT.PlayerState.PLAYING && t >= S.clip.end) {
+    const c = S.clip;
+    if (c.left === -1 || --c.left > 0) { player.seekTo(c.start, true); }
+    else { player.pauseVideo(); S.clip = null; c.onEnd && c.onEnd(); }
+  }
+  const i = cueAt(t);
+  if (i !== S.cur) { S.cur = i; renderSubline(); markTranscript(); }
+}, 80);
+
+// ---------- рендер: живий субтитр ----------
+function wordsHtml(text, cueIdx) {
+  const known = cardWords();
+  return tokens(text).map((p, k) => k % 2
+    ? `<span class="w${known.has(norm(p)) ? ' known' : ''}" data-w="${esc(p)}" data-c="${cueIdx}">${esc(p)}</span>`
+    : esc(p)).join('');
+}
+function renderSubline() {
+  const c = S.cues[S.cur];
+  $('#subTime').textContent = c ? `${fmt(c.start)} – ${fmt(c.end)}` : '--:--';
+  $('#subIdx').textContent = c ? `фраза ${S.cur + 1} з ${S.cues.length}` : '';
+  const st = $('#subText'); st.classList.remove('swap'); void st.offsetWidth; st.classList.add('swap');
+  st.innerHTML = c ? wordsHtml(c.text, S.cur) : (S.cues.length ? '…' : 'Натисніть «Завантажити», щоб почати.');
+  $('#subTr').textContent = c && S.showTr ? trFor(c) : '';
+}
+
+// ---------- транскрипт ----------
+function renderTranscript() {
+  const box = $('#transcript');
+  if (!S.cues.length) { box.innerHTML = '<div class="empty">Тут з’явиться повний текст відео.</div>'; return; }
+  const inNotes = new Set(S.notes.map(n => n.start));
+  box.innerHTML = S.cues.map((c, i) => `<div class="cue" data-i="${i}"><time>${fmt(c.start)}</time><div>${wordsHtml(c.text, i)}${S.showTr && trFor(c) ? `<span class="tr">${esc(trFor(c))}</span>` : ''}</div><button class="add${inNotes.has(c.start) ? ' in' : ''}" title="${inNotes.has(c.start) ? 'Прибрати з конспекту' : 'Додати до конспекту'}">${inNotes.has(c.start) ? '✓' : '+'}</button></div>`).join('');
+}
+function markTranscript() {
+  $$('.cue.now').forEach(e => e.classList.remove('now'));
+  const el = $(`.cue[data-i="${S.cur}"]`);
+  if (el) {
+    el.classList.add('now');
+    if ($('[data-view=transcript]').hidden === false && !transcriptHover) {
+      const box = $('#transcript'), top = el.offsetTop - box.clientHeight / 3;
+      box.scrollTo({ top, behavior: 'smooth' });
+    }
+  }
+}
+let transcriptHover = false;
+$('#transcript').addEventListener('mouseenter', () => transcriptHover = true);
+$('#transcript').addEventListener('mouseleave', () => transcriptHover = false);
+$('#transcript').addEventListener('click', e => {
+  if (e.target.closest('.w')) return;
+  const row = e.target.closest('.cue'); if (!row) return;
+  if (e.target.closest('.add')) { toggleNote(+row.dataset.i); return; }
+  playCue(+row.dataset.i);
+});
+
+// ---------- конспект ----------
+function saveNotes() { if (S.videoId) store.set('notes:' + S.videoId, S.notes); renderNotes(); }
+function toggleNote(i) {
+  const c = S.cues[i], k = S.notes.findIndex(n => n.start === c.start);
+  if (k >= 0) S.notes.splice(k, 1);
+  else S.notes.push({ id: Date.now().toString(36) + i, start: c.start, end: c.end, text: c.text, tr: trFor(c), my: '' });
+  S.notes.sort((a, b) => a.start - b.start);
+  saveNotes(); renderTranscript(); markTranscript();
+}
+function renderNotes() {
+  $('#noteCount').textContent = S.notes.length || '';
+  $('#noteList').innerHTML = S.notes.length ? S.notes.map(n => `
+    <div class="note" data-id="${n.id}">
+      <div class="note-head"><time data-act="play" title="Прослухати">${fmt(n.start)} ▶</time><button class="btn small" data-act="del" title="Прибрати">×</button></div>
+      ${n.text ? `<div class="q">${esc(n.text)}${n.tr ? `<span class="tr">${esc(n.tr)}</span>` : ''}</div>` : ''}
+      <textarea placeholder="Ваша думка, пояснення, приклад…" data-act="my">${esc(n.my || '')}</textarea>
+    </div>`).join('') : '<div class="empty">Конспект порожній. Додайте фрази з транскрипту кнопкою «+».</div>';
+}
+$('#noteList').addEventListener('click', e => {
+  const el = e.target.closest('[data-act]'); if (!el) return;
+  const n = S.notes.find(x => x.id === el.closest('.note').dataset.id);
+  if (el.dataset.act === 'play') playClip(n.start, (n.end || n.start + 4) + 0.15, 1);
+  if (el.dataset.act === 'del') { S.notes = S.notes.filter(x => x !== n); saveNotes(); renderTranscript(); markTranscript(); }
+});
+$('#noteList').addEventListener('input', e => {
+  if (e.target.dataset.act !== 'my') return;
+  const n = S.notes.find(x => x.id === e.target.closest('.note').dataset.id);
+  n.my = e.target.value; store.set('notes:' + S.videoId, S.notes);
+});
+$('#noteAdd').onclick = () => {
+  if (!S.videoId) return;
+  const t = now();
+  S.notes.push({ id: Date.now().toString(36), start: t, end: t + 4, text: '', tr: '', my: '' });
+  S.notes.sort((a, b) => a.start - b.start); saveNotes();
+  setTimeout(() => { const ta = $$('#noteList .note').find(el => el.querySelector('textarea').value === '' && !el.querySelector('.q')); ta && ta.querySelector('textarea').focus(); }, 30);
+};
+$('#noteAll').onclick = () => {
+  const have = new Set(S.notes.map(n => n.start));
+  S.cues.forEach((c, i) => { if (!have.has(c.start)) S.notes.push({ id: Date.now().toString(36) + i, start: c.start, end: c.end, text: c.text, tr: trFor(c), my: '' }); });
+  S.notes.sort((a, b) => a.start - b.start); saveNotes(); renderTranscript(); markTranscript();
+};
+let clearArmed = false;
+$('#noteClear').onclick = () => {
+  if (!clearArmed) { clearArmed = true; $('#noteClear').textContent = 'Точно очистити?'; setTimeout(() => { clearArmed = false; $('#noteClear').textContent = 'Очистити'; }, 3000); return; }
+  clearArmed = false; $('#noteClear').textContent = 'Очистити';
+  S.notes = []; saveNotes(); renderTranscript(); markTranscript();
+};
+
+// ---------- PDF: конспект + словник ----------
+function exportPdf() {
+  const link = S.videoId ? 'https://youtu.be/' + S.videoId : '';
+  const words = S.cards.filter(c => !S.videoId || c.videoId === S.videoId);
+  const other = S.cards.filter(c => S.videoId && c.videoId !== S.videoId);
+  const wordRows = list => list.map(c => `<tr><td><b>${esc(c.word)}</b></td><td>${esc(c.translation || '')}</td><td class="ctx">${highlight(c.context, c.word)}${c.contextTr ? '<br>' + esc(c.contextTr) : ''}</td></tr>`).join('');
+  $('#printArea').innerHTML = `
+    <h1>${esc(S.title || 'Конспект відео')}</h1>
+    <div class="src">${esc(link)} · ${new Date().toLocaleDateString('uk-UA')}</div>
+    <h2>Ключові тези</h2>
+    ${S.cues.length ? getTheses().map(t => `<div class="pn"><time>${fmt(t.start)}</time><div>${esc(t.text)}</div></div>`).join('') : ''}
+    <h2>Конспект</h2>
+    ${S.notes.length ? S.notes.map(n => `<div class="pn"><time>${fmt(n.start)}</time><div>${esc(n.text || '')}${n.tr ? `<span class="tr">${esc(n.tr)}</span>` : ''}${n.my ? `<span class="my">${esc(n.my)}</span>` : ''}</div></div>`).join('') : '<p>Нотаток немає.</p>'}
+    <h2>Слова з цього відео (${words.length})</h2>
+    ${words.length ? `<table><tr><th>Слово</th><th>Переклад</th><th>Контекст</th></tr>${wordRows(words)}</table>` : '<p>Слів немає.</p>'}
+    ${other.length ? `<h2>Інші слова зі словника (${other.length})</h2><table><tr><th>Слово</th><th>Переклад</th><th>Контекст</th></tr>${wordRows(other)}</table>` : ''}`;
+  const old = document.title;
+  document.title = (S.title || 'konspekt').replace(/[\\/:*?"<>|]/g, '').slice(0, 80);
+  window.print();
+  document.title = old;
+}
+$('#pdfBtn').onclick = exportPdf;
+$('#pdfBtn2').onclick = exportPdf;
+
+// ---------- переклад ----------
+// Публічний ендпоінт Google Translate дозволяє CORS, тож перекладаємо прямо з браузера.
+async function translate(q) {
+  try {
+    const r = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=${S.lang}&tl=${NATIVE}&dt=t&dt=bd&q=${encodeURIComponent(q)}`);
+    const j = await r.json();
+    const text = (j[0] || []).map(x => x[0]).join('');
+    const alts = (j[1] || []).flatMap(p => (p[1] || []).slice(0, 2)).filter(a => a.toLowerCase() !== text.toLowerCase());
+    return [text, ...alts].slice(0, 3).join(', ');
+  } catch { return ''; }
+}
+
+// ---------- поповер слова → картка ----------
+let popData = null;
+document.addEventListener('click', e => {
+  const w = e.target.closest('.w');
+  if (w) {
+    e.stopPropagation();
+    const c = S.cues[+w.dataset.c];
+    popData = { word: w.dataset.w, cue: c };
+    if (playerReady && player.getPlayerState() === YT.PlayerState.PLAYING) { player.pauseVideo(); S.clip = null; }
+    $('#popWord').textContent = w.dataset.w;
+    $('#popCtx').innerHTML = esc(c.text).replace(new RegExp(`(${w.dataset.w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`), '<b>$1</b>');
+    const existing = S.cards.find(x => norm(x.word) === norm(w.dataset.w));
+    $('#popTr').value = existing ? existing.translation : '';
+    if (!existing) {
+      $('#popTr').placeholder = 'Перекладаю…';
+      const asked = w.dataset.w;
+      translate(asked).then(t => {
+        $('#popTr').placeholder = 'Переклад або нотатка';
+        if (popData && popData.word === asked && !$('#popTr').value) $('#popTr').value = t;
+      });
+    }
+    $('#popSave').textContent = existing ? 'Оновити картку' : 'Створити картку';
+    $('#popLink').href = `https://translate.google.com/?sl=${S.lang}&tl=${NATIVE}&text=${encodeURIComponent(w.dataset.w)}&op=translate`;
+    const pop = $('#pop'); pop.hidden = false;
+    const r = w.getBoundingClientRect(), pw = pop.offsetWidth, ph = pop.offsetHeight;
+    let x = Math.min(window.innerWidth - pw - 16, Math.max(16, r.left + r.width / 2 - pw / 2));
+    let y = r.bottom + 8; if (y + ph > window.innerHeight - 16) y = Math.max(16, r.top - ph - 8);
+    pop.style.left = x + 'px'; pop.style.top = y + 'px';
+    $('#popTr').focus();
+    return;
+  }
+  if (!e.target.closest('#pop')) $('#pop').hidden = true;
+});
+$('#popCancel').onclick = () => $('#pop').hidden = true;
+$('#popTr').addEventListener('keydown', e => { if (e.key === 'Enter') $('#popSave').click(); if (e.key === 'Escape') $('#pop').hidden = true; });
+$('#popSave').onclick = () => {
+  const { word, cue } = popData;
+  const translation = $('#popTr').value.trim();
+  const existing = S.cards.find(x => norm(x.word) === norm(word));
+  if (existing) Object.assign(existing, { translation: translation || existing.translation });
+  else S.justAdded = Date.now().toString(36), S.cards.unshift({
+    id: S.justAdded, word, translation,
+    context: cue.text, contextTr: trFor(cue),
+    videoId: S.videoId, start: cue.start, end: cue.end,
+    box: 1, due: Date.now(), created: Date.now(),
+  });
+  saveCards(); $('#pop').hidden = true;
+  toast(existing ? 'Картку оновлено' : `Картка «${word}» створена`);
+  renderSubline(); renderTranscript(); markTranscript();
+};
+function saveCards() { store.set('cards', S.cards); renderCards(); }
+
+// ---------- керування ----------
+$('#replayBtn').onclick = () => playCue(S.cur < 0 ? 0 : S.cur);
+$('#prevBtn').onclick = () => playCue(Math.max(0, S.cur - 1));
+$('#nextBtn').onclick = () => playCue(Math.min(S.cues.length - 1, S.cur + 1));
+function segPick(seg, btn) { $$(seg + ' button').forEach(b => b.classList.toggle('on', b === btn)); }
+$('#loopSeg').onclick = e => { const b = e.target.closest('button'); if (!b) return; segPick('#loopSeg', b); S.loopN = +b.dataset.n;
+  if (S.loopN !== 0 && S.cur >= 0) playCue(S.cur); else if (S.clip) S.clip.left = 1; };
+$('#rateSeg').onclick = e => { const b = e.target.closest('button'); if (!b) return; segPick('#rateSeg', b); S.rate = +b.dataset.r; playerReady && player.setPlaybackRate(S.rate); };
+$('#trToggle').onclick = () => { S.showTr = !S.showTr; store.set('showTr', S.showTr); $('#trToggle').classList.toggle('on', S.showTr); renderSubline(); renderTranscript(); markTranscript(); };
+$('#trToggle').classList.toggle('on', S.showTr);
+
+document.addEventListener('keydown', e => {
+  if (e.target.matches('input, textarea, select')) return;
+  if (e.key === 'r' || e.key === 'R' || e.key === 'к' || e.key === 'К') { e.preventDefault(); $('#replayBtn').click(); }
+  else if (e.key === 'ArrowLeft') { e.preventDefault(); $('#prevBtn').click(); }
+  else if (e.key === 'ArrowRight') { e.preventDefault(); $('#nextBtn').click(); }
+  else if (e.key === ' ' && playerReady) {
+    e.preventDefault();
+    player.getPlayerState() === YT.PlayerState.PLAYING ? (player.pauseVideo(), S.clip = null) : player.playVideo();
+  }
+  else if (/^[1-4]$/.test(e.key) && modeVisible('next')) { $$('#nextOptions .option')[+e.key - 1]?.click(); }
+  else if (/^[1-4]$/.test(e.key) && modeVisible('words')) { $$('#wordOptions .option')[+e.key - 1]?.click(); }
+});
+
+// ---------- вкладки ----------
+$('.tabs').onclick = e => {
+  const t = e.target.closest('.tab'); if (!t) return;
+  $$('.tab').forEach(x => x.setAttribute('aria-selected', x === t));
+  $$('.view').forEach(v => v.hidden = v.dataset.view !== t.dataset.tab);
+  if (t.dataset.tab === 'test') startTest();
+  if (t.dataset.tab === 'info') renderPoster();
+  if (t.dataset.tab === 'transcript') markTranscript();
+};
+
+// ---------- тест ----------
+let testMode = 'words';
+const modeVisible = m => !$('[data-view=test]').hidden && testMode === m;
+function startTest() {
+  $$('[data-mode]').forEach(p => p.hidden = p.dataset.mode !== testMode);
+  if (testMode === 'words' && !wordQ) newWordQ();
+  if (testMode === 'cloze' && !cloze) newCloze();
+  if (testMode === 'next' && !nextQ) newNext();
+}
+$('#testSeg').onclick = e => { const b = e.target.closest('button'); if (!b) return; segPick('#testSeg', b); testMode = b.dataset.m; startTest(); };
+
+// Переклад слів: слово → 4 варіанти перекладу з вашого словника
+let wordQ = null;
+function newWordQ() {
+  const pool = S.cards.filter(c => c.translation);
+  if (pool.length < 2) {
+    $('#wordPrompt').innerHTML = 'Додайте щонайменше 2 слова з перекладом: клікніть по незнайомих словах у субтитрах.';
+    $('#wordOptions').innerHTML = ''; wordQ = null; return;
+  }
+  // спершу слова, які ви знаєте найгірше
+  const c = pool.slice().sort((a, b) => a.box - b.box + (Math.random() - 0.5) * 2)[0];
+  const opts = [c, ...pool.filter(x => x !== c).sort(() => Math.random() - 0.5).slice(0, 3)].sort(() => Math.random() - 0.5);
+  wordQ = { c, opts, done: false };
+  $('#wordPrompt').innerHTML = `<small>що означає</small><b style="font-size:24px">${esc(c.word)}</b><div style="font-size:14px;color:#c9ccd2;margin-top:6px">${esc(c.context)}</div>`;
+  $('#wordOptions').innerHTML = opts.map((o, n) => `<button class="option" data-n="${n}"><span class="k">${n + 1}</span><span>${esc(o.translation)}</span></button>`).join('');
+  renderScores();
+}
+$('#wordOptions').onclick = e => {
+  const b = e.target.closest('.option'); if (!b || !wordQ || wordQ.done) return;
+  wordQ.done = true;
+  const ok = wordQ.opts[+b.dataset.n] === wordQ.c;
+  $$('#wordOptions .option').forEach((el, n) => { el.disabled = true; if (wordQ.opts[n] === wordQ.c) el.classList.add('right'); });
+  if (!ok) b.classList.add('wrong');
+  const c = wordQ.c;
+  if (ok) { c.box = Math.min(6, c.box + 1); c.due = Date.now() + DAYS[c.box] * 864e5; } else { c.box = 1; c.due = Date.now(); }
+  S.stats.words = S.stats.words || [0, 0]; S.stats.words[1]++; if (ok) S.stats.words[0]++;
+  store.set('stats', S.stats); store.set('cards', S.cards); renderScores(); renderCards();
+  if (c.videoId) playCard(c);
+};
+$('#wordReplay').onclick = () => wordQ && wordQ.c.videoId && playCard(wordQ.c);
+$('#wordNext').onclick = newWordQ;
+
+// ---------- режим «пропущені слова» ----------
+let cloze = null, clozeLevel = 1;
+const STOP = new Set(('the a an and or but of to in on at is are was were be been it its i you he she we they me my your our their this that these those for with as by so do does did not no yes oh um uh just like really very can could would will what which who there here then than about from have has had get got one all some any also into out up' +
+  ' і й та а але що це як в у на з із до від для по за не так ти я ми ви він вона воно вони його її їх мене мені тебе нас вас цей ця це ці той та те там тут коли де щоб чи бо ж же вже ще теж також дуже було буде є був була були був може можна треба просто ну от ось якщо всі все весь цього цієї про при над під між через').split(' '));
+function goodCues() { return S.cues.map((c, i) => [c, i]).filter(([c]) => tokens(c.text).filter((_, k) => k % 2).length >= 4 && !/^\(.*\)$/.test(c.text)); }
+function newCloze() {
+  const pool = goodCues(); if (!pool.length) { $('#clozeText').innerHTML = '<div class="empty">Спершу завантажте відео із субтитрами.</div>'; return; }
+  const known = cardWords();
+  const withCards = pool.filter(([c]) => tokens(c.text).some((p, k) => k % 2 && known.has(norm(p))));
+  const [c, i] = (withCards.length && Math.random() < 0.6) ? pickRand(withCards) : pickRand(pool);
+  const parts = tokens(c.text);
+  const wordIdx = parts.map((p, k) => k).filter(k => k % 2);
+  let hide;
+  if (clozeLevel === 3) {
+    const len = Math.max(2, Math.ceil(wordIdx.length / 2)), from = Math.floor(Math.random() * (wordIdx.length - len + 1));
+    hide = wordIdx.slice(from, from + len);
+  } else {
+    const ranked = wordIdx
+      .map(k => [k, (known.has(norm(parts[k])) ? 100 : 0) + (STOP.has(parts[k].toLowerCase()) ? -50 : 0) + parts[k].length + Math.random() * 3])
+      .sort((a, b) => b[1] - a[1]);
+    hide = ranked.slice(0, clozeLevel).map(x => x[0]).sort((a, b) => a - b);
+  }
+  cloze = { i, parts, hide, checked: false, hints: 0 };
+  $('#clozeText').innerHTML = parts.map((p, k) => hide.includes(k)
+    ? `<input data-k="${k}" style="width:${Math.max(3, p.length + 1)}ch" autocomplete="off" spellcheck="false" aria-label="пропущене слово">`
+    : esc(p)).join('');
+  $('#clozeAnswer').innerHTML = '';
+  $$('#clozeText input').forEach((inp, n, all) => inp.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); cloze.checked ? newCloze() : (n < all.length - 1 && !e.ctrlKey ? all[n + 1].focus() : checkCloze()); }
+  }));
+  renderScores();
+  playCue(i, { n: 1 });
+  setTimeout(() => $('#clozeText input')?.focus(), 50);
+}
+function checkCloze() {
+  if (!cloze || cloze.checked) return;
+  let ok = true;
+  $$('#clozeText input').forEach(inp => {
+    const right = norm(inp.value) === norm(cloze.parts[+inp.dataset.k]);
+    inp.classList.add(right ? 'ok' : 'no'); ok = ok && right;
+    if (!right) inp.value = cloze.parts[+inp.dataset.k];
+    inp.readOnly = true;
+  });
+  cloze.checked = true;
+  S.stats.cloze[1]++; if (ok) S.stats.cloze[0]++; store.set('stats', S.stats);
+  const c = S.cues[cloze.i];
+  $('#clozeAnswer').innerHTML = (ok ? '<b style="color:var(--good)">Правильно.</b> ' : '<b style="color:var(--bad)">Майже.</b> ') + esc(c.text) + (trFor(c) ? `<br>${esc(trFor(c))}` : '');
+  renderScores();
+}
+$('#clozeCheck').onclick = checkCloze;
+$('#clozeNext').onclick = newCloze;
+$('#clozePlay').onclick = () => cloze && playCue(cloze.i, { n: 1 });
+$('#clozeSlow').onclick = () => { if (!cloze) return; player.setPlaybackRate(0.75); playCue(cloze.i, { n: 1, onEnd: () => player.setPlaybackRate(S.rate) }); };
+$('#clozeHint').onclick = () => {
+  if (!cloze || cloze.checked) return;
+  const inp = $$('#clozeText input').find(x => norm(x.value) !== norm(cloze.parts[+x.dataset.k]));
+  if (!inp) return;
+  const word = cloze.parts[+inp.dataset.k];
+  let n = 0; while (n < word.length && norm(inp.value.slice(0, n + 1)) === norm(word.slice(0, n + 1))) n++;
+  inp.value = word.slice(0, n + 1); inp.focus();
+};
+$('#clozeLevel').onclick = e => { const b = e.target.closest('button'); if (!b) return; segPick('#clozeLevel', b); clozeLevel = +b.dataset.l; newCloze(); };
+
+// ---------- режим «вгадай наступну репліку» ----------
+let nextQ = null;
+function newNext() {
+  const pool = S.cues.map((c, i) => i).filter(i => i < S.cues.length - 1 && !/^\(.*\)$/.test(S.cues[i + 1].text) && S.cues[i + 1].text.split(' ').length >= 3);
+  if (pool.length < 4) { $('#nextPrompt').innerHTML = 'Спершу завантажте відео із субтитрами.'; $('#nextOptions').innerHTML = ''; return; }
+  const i = pickRand(pool), right = S.cues[i + 1];
+  const len = right.text.length;
+  const distract = S.cues.filter((c, k) => Math.abs(k - i - 1) > 3 && !/^\(.*\)$/.test(c.text) && c.text.split(' ').length >= 3)
+    .sort((a, b) => Math.abs(a.text.length - len) - Math.abs(b.text.length - len) + (Math.random() - 0.5) * 30)
+    .slice(0, 12).sort(() => Math.random() - 0.5).slice(0, 3);
+  const opts = [right, ...distract].sort(() => Math.random() - 0.5);
+  nextQ = { i, right, opts, done: false };
+  const prev = S.cues[i - 1];
+  $('#nextPrompt').innerHTML = `<small>${fmt(S.cues[i].start)} · прозвучить</small>${prev ? `<span style="opacity:.55">${esc(prev.text)}</span> ` : ''}${esc(S.cues[i].text)}`;
+  $('#nextOptions').innerHTML = opts.map((o, n) => `<button class="option" data-n="${n}"><span class="k">${n + 1}</span><span>${esc(o.text)}</span></button>`).join('');
+  renderScores();
+  playClip(prev && S.cues[i].start - prev.end < 1 ? prev.start : S.cues[i].start, S.cues[i].end + 0.1, 1);
+}
+$('#nextOptions').onclick = e => {
+  const b = e.target.closest('.option'); if (!b || !nextQ || nextQ.done) return;
+  nextQ.done = true;
+  const pick = nextQ.opts[+b.dataset.n], ok = pick === nextQ.right;
+  $$('#nextOptions .option').forEach((el, n) => { el.disabled = true; if (nextQ.opts[n] === nextQ.right) el.classList.add('right'); });
+  if (!ok) b.classList.add('wrong');
+  S.stats.next[1]++; if (ok) { S.stats.next[0]++; S.stats.streak++; } else S.stats.streak = 0;
+  store.set('stats', S.stats); renderScores();
+  playCue(nextQ.i + 1, { n: 1 });
+};
+$('#nextReplay').onclick = () => nextQ && playCue(nextQ.i, { n: 1 });
+$('#nextNext').onclick = newNext;
+
+function renderScores() {
+  const [a, b] = S.stats.cloze, [c, d] = S.stats.next;
+  $('#clozeScore').innerHTML = `<b>${a}</b> / ${b} правильно`;
+  $('#nextScore').innerHTML = `<b>${c}</b> / ${d} · серія <b>${S.stats.streak}</b>`;
+  const [e, f] = S.stats.words || [0, 0];
+  $('#wordScore').innerHTML = `<b>${e}</b> / ${f} правильно`;
+}
+
+// ---------- картки й повторення (система Лейтнера) ----------
+const DAYS = [0, 0, 1, 3, 7, 16, 35];
+function renderCards() {
+  $('#cardCount').textContent = S.cards.length ? S.cards.length : '';
+  const due = S.cards.filter(c => c.due <= Date.now());
+  $('#dueInfo').textContent = S.cards.length ? `${S.cards.length} слів · до повторення сьогодні ${due.length}` : 'Клікніть по незнайомому слову в субтитрах, щоб зберегти його.';
+  $('#reviewBtn').disabled = !due.length;
+  $('#cardList').innerHTML = S.cards.length ? S.cards.map(c => `
+    <div class="card${c.id === S.justAdded ? " new" : ""}" data-id="${c.id}">
+      <div class="row" style="gap:8px"><span class="word">${esc(c.word)}</span> <input class="trin" data-act="tr" value="${esc(c.translation || '')}" placeholder="переклад" aria-label="переклад слова ${esc(c.word)}"></div>
+      <div class="acts">
+        <span class="box" title="Скринька Лейтнера">${c.box}/6</span>
+        <button class="btn small" data-act="play" ${c.videoId ? '' : 'disabled'}>▶</button>
+        <button class="btn small" data-act="del" title="Видалити">×</button>
+      </div>
+      <div class="ctx">${highlight(c.context, c.word)}</div>
+    </div>`).join('') : '<div class="empty">Ще немає карток.</div>';
+}
+function highlight(text, word) {
+  return tokens(text).map((p, k) => k % 2 && norm(p) === norm(word) ? `<mark>${esc(p)}</mark>` : esc(p)).join('');
+}
+function playCard(c) {
+  if (c.videoId !== S.videoId) { loadVideo(c.videoId, { then: () => playClip(c.start, c.end + 0.15, 1) }); return; }
+  playClip(c.start, c.end + 0.15, 1);
+}
+$('#cardList').onclick = e => {
+  const b = e.target.closest('button'); if (!b) return;
+  const id = b.closest('.card').dataset.id, c = S.cards.find(x => x.id === id);
+  if (b.dataset.act === 'play') playCard(c);
+  if (b.dataset.act === 'del') { S.cards = S.cards.filter(x => x.id !== id); saveCards(); renderSubline(); renderTranscript(); }
+};
+$('#cardList').addEventListener('change', e => {
+  if (e.target.dataset.act !== 'tr') return;
+  const c = S.cards.find(x => x.id === e.target.closest('.card').dataset.id);
+  c.translation = e.target.value.trim(); store.set('cards', S.cards);
+});
+$('#trAllBtn').onclick = async () => {
+  const todo = S.cards.filter(c => !c.translation);
+  if (!todo.length) { toast('Усі слова вже перекладені'); return; }
+  $('#trAllBtn').disabled = true;
+  for (const [n, c] of todo.entries()) {
+    $('#trAllBtn').textContent = `Перекладаю ${n + 1}/${todo.length}…`;
+    c.translation = await translate(c.word);
+  }
+  $('#trAllBtn').disabled = false; $('#trAllBtn').textContent = 'Перекласти всі';
+  saveCards(); toast('Готово');
+};
+
+let queue = [];
+$('#reviewBtn').onclick = () => { queue = S.cards.filter(c => c.due <= Date.now()).sort(() => Math.random() - 0.5); showReview(); };
+function showReview() {
+  const box = $('#review');
+  if (!queue.length) { box.hidden = true; $('#cardList').hidden = false; renderCards(); toast('Повторення завершено'); return; }
+  $('#cardList').hidden = true; box.hidden = false;
+  const c = queue[0];
+  box.innerHTML = `<div class="flash">
+    <div class="box">залишилось ${queue.length}</div>
+    <div class="front">${highlight(c.context, c.word)}</div>
+    <div class="row" style="justify-content:center"><button class="btn" id="rvPlay">▶ Почути в оригіналі</button><button class="btn primary" id="rvShow">Показати переклад</button></div>
+    <div class="back" hidden id="rvBack"><b>${esc(c.word)}</b> — ${esc(c.translation || 'без перекладу')}<span class="ctx-tr">${esc(c.contextTr || '')}</span></div>
+    <div class="row" style="justify-content:center" hidden id="rvGrade"><button class="btn" id="rvAgain">Не пам’ятаю</button><button class="btn primary" id="rvGood">Пам’ятаю</button></div>
+  </div><div class="row" style="justify-content:center;margin-top:10px"><button class="btn small" id="rvStop">Завершити</button></div>`;
+  $('#rvPlay').onclick = () => playCard(c);
+  $('#rvShow').onclick = () => { $('#rvBack').hidden = false; $('#rvGrade').hidden = false; $('#rvShow').hidden = true; };
+  $('#rvAgain').onclick = () => { c.box = 1; c.due = Date.now(); queue.push(queue.shift()); store.set('cards', S.cards); showReview(); };
+  $('#rvGood').onclick = () => { c.box = Math.min(6, c.box + 1); c.due = Date.now() + DAYS[c.box] * 864e5; queue.shift(); store.set('cards', S.cards); showReview(); };
+  $('#rvStop').onclick = () => { queue = []; box.hidden = true; $('#cardList').hidden = false; renderCards(); };
+  if (c.videoId === S.videoId) playCard(c);
+}
+
+// ---------- інфографіка: ключові тези ----------
+// Тези виділяються без ШІ: речення з найчастотнішими змістовними словами відео (+ бонус за ваші слова).
+let infoSrc = 'auto';
+function sentences() {
+  const out = []; let buf = null;
+  for (const c of S.cues) {
+    if (/^\(.*\)$/.test(c.text)) continue;
+    if (!buf) buf = { start: c.start, text: '' };
+    buf.text += (buf.text ? ' ' : '') + c.text;
+    if (/[.!?…]["”»]?$/.test(c.text) || buf.text.split(' ').length > 40) { out.push(buf); buf = null; }
+  }
+  if (buf) out.push(buf);
+  return out;
+}
+function keywords(n = 10) {
+  const freq = {};
+  for (const c of S.cues) for (const p of tokens(c.text).filter((_, k) => k % 2)) {
+    const w = norm(p); if (w.length < 4 || STOP.has(w)) continue;
+    freq[w] = (freq[w] || 0) + 1;
+  }
+  return Object.entries(freq).sort((a, b) => b[1] - a[1]).slice(0, n);
+}
+function autoTheses(n = 6) {
+  const freq = Object.fromEntries(keywords(60));
+  const mine = cardWords();
+  const scored = sentences().map(s => {
+    const ws = tokens(s.text).filter((_, k) => k % 2).map(norm);
+    const score = ws.reduce((a, w) => a + (freq[w] || 0) + (mine.has(w) ? 6 : 0), 0) / Math.sqrt(ws.length || 1);
+    return { ...s, n: ws.length, score };
+  }).filter(s => s.n >= 7 && s.n <= 38);
+  // не беремо дві тези з одного шматка відео
+  const picked = [];
+  for (const s of scored.sort((a, b) => b.score - a.score)) {
+    if (picked.every(p => Math.abs(p.start - s.start) > 25)) picked.push(s);
+    if (picked.length === n) break;
+  }
+  return picked.sort((a, b) => a.start - b.start).map(s => ({ start: s.start, text: s.text }));
+}
+function getTheses() {
+  if (infoSrc === 'notes' && S.notes.length) return S.notes.slice(0, 8).map(n => ({ start: n.start, text: n.my || n.text, sub: n.my ? n.text : '' }));
+  const saved = S.videoId && store.get('theses:' + S.videoId);
+  return saved || autoTheses();
+}
+function posterHtml() {
+  if (!S.cues.length) return '<div class="empty" style="color:inherit">Відкрийте відео із субтитрами: тези з’являться тут.</div>';
+  const th = getTheses();
+  const dur = S.cues[S.cues.length - 1].end;
+  const allWords = S.cues.flatMap(c => tokens(c.text).filter((_, k) => k % 2));
+  const uniq = new Set(allWords.map(norm)).size;
+  const mine = S.cards.filter(c => c.videoId === S.videoId);
+  const kws = keywords(10).map(([w]) => w);
+  return `
+    <div><div class="p-kicker">Ключові тези · ${LANG_LABEL[S.lang] || S.lang}</div><h3 class="p-title">${esc(S.title || 'Відео')}</h3></div>
+    <div class="p-stats">
+      <div class="p-stat"><b>${Math.round(dur / 60)} хв</b><span>тривалість</span></div>
+      <div class="p-stat"><b>${allWords.length.toLocaleString('uk-UA')}</b><span>слів сказано</span></div>
+      <div class="p-stat"><b>${uniq.toLocaleString('uk-UA')}</b><span>різних слів</span></div>
+      <div class="p-stat"><b>${mine.length}</b><span>слів у словнику</span></div>
+    </div>
+    <div class="p-theses">${th.map((t, i) => `<div class="p-th" style="animation-delay:${i * 60}ms"><time>${fmt(t.start)}</time><div contenteditable="true" spellcheck="false" data-i="${i}">${esc(t.text)}${t.sub ? `<small>${esc(t.sub)}</small>` : ''}</div></div>`).join('')}</div>
+    <div><div class="p-h" style="margin-bottom:8px">Слова, що звучать найчастіше</div>
+      <div class="p-tags">${kws.map(w => `<span class="p-tag">${esc(w)}</span>`).join('')}${mine.slice(0, 8).map(c => `<span class="p-tag mine">${esc(c.word)}${c.translation ? ' · ' + esc(c.translation.split(',')[0]) : ''}</span>`).join('')}</div></div>
+    <div class="p-foot"><span>youtu.be/${esc(S.videoId || '')}</span><span>Subtitle Hacker</span></div>`;
+}
+const LANG_LABEL = { en: 'English', uk: 'Українська' };
+function renderPoster() { $('#poster').innerHTML = posterHtml(); }
+$('#poster').addEventListener('input', () => {
+  if (infoSrc !== 'auto' || !S.videoId) return;
+  const th = getTheses();
+  $$('#poster [data-i]').forEach(el => { th[+el.dataset.i].text = el.innerText.trim(); });
+  store.set('theses:' + S.videoId, th);
+});
+$('#infoSrc').onclick = e => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.s === 'notes' && !S.notes.length) { toast('Конспект порожній: додайте фрази кнопкою «+»'); return; }
+  segPick('#infoSrc', b); infoSrc = b.dataset.s; renderPoster();
+};
+$('#infoPng').onclick = async () => {
+  if (!window.html2canvas) { toast('Бібліотека для PNG не завантажилась'); return; }
+  const el = $('#poster'); el.querySelectorAll('.p-th').forEach(x => x.style.animation = 'none');
+  try {
+    const canvas = await html2canvas(el, { scale: 2, backgroundColor: null });
+    const a = document.createElement('a');
+    a.href = canvas.toDataURL('image/png');
+    a.download = (S.title || 'infographic').replace(/[\\/:*?"<>|]/g, '').slice(0, 60) + '.png';
+    a.click();
+    toast('Інфографіку збережено');
+  } catch { toast('Не вдалося створити PNG'); }
+};
+
+// ---------- завантаження відео ----------
+function setCues(cues, trCues) {
+  S.cues = cues; S.trCues = trCues || []; S.cur = -1; cloze = null; nextQ = null;
+  renderTranscript(); renderSubline(); renderNotes();
+  if (!$('[data-view=info]').hidden) renderPoster();
+  if (modeVisible('cloze')) newCloze();
+  if (modeVisible('next')) newNext();
+}
+async function loadVideo(id, { then } = {}) {
+  S.videoId = id; S.lang = $('#lang').value; NATIVE = nativeFor(S.lang);
+  S.notes = store.get('notes:' + id, []);
+  $('#url').value = 'https://youtu.be/' + id;
+  store.set('last', { id, lang: S.lang });
+  cueVideo(id);
+  const cached = store.get('subs:' + id + ':' + S.lang);
+  if (cached) {
+    S.title = cached.title; $('#vtitle').textContent = cached.title;
+    setCues(cached.cues, cached.trCues); status(`${cached.cues.length} фраз.`); then && setTimeout(then, 600); return;
+  }
+  setCues([], []);
+  if (!HAS_API) { $('#vtitle').textContent = ''; status(''); $('#pastePanel').hidden = false; return; }
+  status('Завантажую субтитри з YouTube…');
+  try {
+    const r = await fetch(`${API}/api/subs?v=${id}&lang=${S.lang}&tr=${NATIVE}`);
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error);
+    S.title = j.title; $('#vtitle').textContent = j.title;
+    if (j.lang !== S.lang) status(`Субтитрів мовою ${S.lang.toUpperCase()} немає, узяв ${j.lang}.`);
+    else status(`${j.cues.length} фраз${j.trCues.length ? ' + переклад ' + (NATIVE === 'uk' ? 'українською' : 'англійською') : ''}. Клікайте по словах, щоб створювати картки.`);
+    setCues(j.cues, j.trCues);
+    store.set('subs:' + id + ':' + S.lang, { title: j.title, cues: j.cues, trCues: j.trCues });
+    then && setTimeout(then, 600);
+  } catch (e) {
+    status((e.message || 'Не вдалося отримати субтитри автоматично.') + ' Вставте транскрипцію вручну нижче.', true);
+    $('#pastePanel').hidden = false;
+  }
+}
+function useCues(cues, from) {
+  if (!cues.length) { status('Не знайшов жодного рядка з таймкодом. Скопіюйте транскрипцію разом із часом (0:04 …).', true); return; }
+  setCues(cues, []);
+  if (S.videoId) store.set('subs:' + S.videoId + ':' + S.lang, { title: S.title, cues, trCues: [] });
+  status(`Підставлено ${cues.length} фраз${from ? ' з ' + from : ''}. Клікайте по словах, щоб зберігати їх.`);
+  $('#pastePanel').hidden = true;
+}
+$('#pasteUse').onclick = () => useCues(parseSubtitles($('#pasteText').value), '');
+$('#pasteToggle').onclick = () => { $('#pastePanel').hidden = !$('#pastePanel').hidden; if (!$('#pastePanel').hidden) $('#pasteText').focus(); };
+$('#pasteClose').onclick = () => $('#pastePanel').hidden = true;
+$('#loadForm').onsubmit = e => {
+  e.preventDefault();
+  const id = parseId($('#url').value.trim());
+  if (!id) { status('Це не схоже на посилання YouTube. Приклад: https://youtu.be/arj7oStGLkU', true); return; }
+  loadVideo(id);
+};
+$('#subFile').onchange = async e => {
+  const f = e.target.files[0]; if (!f) return;
+  useCues(parseSubtitles(await f.text()), 'файлу ' + f.name);
+  e.target.value = '';
+};
+
+// ---------- старт ----------
+renderCards(); renderScores(); renderTranscript();
+const last = store.get('last');
+if (last) $('#lang').value = last.lang;
+loadVideo(last ? last.id : parseId(DEMO));
+</script>
+</body>
+</html>
